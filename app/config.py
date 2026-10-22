@@ -9,10 +9,22 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Locate dataset directory
-DATASET_DIR = BASE_DIR / "Capstone_Project_Dataset_FTTT_2026"
-if not DATASET_DIR.exists():
-    DATASET_DIR = BASE_DIR
+# Locate dataset directory with resilient multi-path discovery
+DATASET_DIR = BASE_DIR
+for candidate in [
+    BASE_DIR / "Capstone_Project_Dataset_FTTT_2026",
+    BASE_DIR.parent / "Capstone_Project_Dataset_FTTT_2026",
+    BASE_DIR,
+    BASE_DIR.parent
+]:
+    if (candidate / "data" / "pincodes.csv").exists():
+        DATASET_DIR = candidate
+        break
+
+# Resolve data, kb, and practice dirs
+DATA_CSV_DIR = DATASET_DIR / "data" if (DATASET_DIR / "data").exists() else BASE_DIR / "data"
+KB_DIR = DATASET_DIR / "kb" if (DATASET_DIR / "kb").exists() else (BASE_DIR / "kb" if (BASE_DIR / "kb").exists() else BASE_DIR.parent / "kb")
+PRACTICE_DIR = DATASET_DIR / "practice" if (DATASET_DIR / "practice").exists() else (BASE_DIR / "practice" if (BASE_DIR / "practice").exists() else BASE_DIR.parent / "practice")
 
 
 class Settings(BaseModel):
@@ -26,9 +38,9 @@ class Settings(BaseModel):
     
     # Database
     DATABASE_PATH: Path = BASE_DIR / "data" / "zentromart.db"
-    DATA_CSV_DIR: Path = DATASET_DIR / "data"
-    KB_DIR: Path = DATASET_DIR / "kb"
-    PRACTICE_DIR: Path = DATASET_DIR / "practice"
+    DATA_CSV_DIR: Path = DATA_CSV_DIR
+    KB_DIR: Path = KB_DIR
+    PRACTICE_DIR: Path = PRACTICE_DIR
     
     # API Keys
     GNANI_API_KEY: str = Field(default_factory=lambda: os.getenv("GNANI_API_KEY", ""))
