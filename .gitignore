@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Environment Variables & Secrets
+.env
+*.pem
+*.key
+
+# SQLite Database & Runtime Tickets
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/audio_temp/
+tools/tickets_created.csv
+
+# Testing & Cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs & IDE
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
