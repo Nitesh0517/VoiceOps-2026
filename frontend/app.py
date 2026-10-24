@@ -69,8 +69,40 @@ with st.sidebar:
 
     st.divider()
     st.subheader("🔑 API Status")
-    gnani_status = "🟢 Live API" if st.session_state.voice_client.is_live else "🟠 Mock Engine (No Key)"
-    st.write(f"**Gnani.ai Speech:** {gnani_status}")
+    active_key = os.getenv("GNANI_API_KEY", "") or settings.GNANI_API_KEY
+    if active_key and not st.session_state.voice_client.is_live:
+        st.session_state.voice_client = VoiceClient()
+
+    if st.session_state.voice_client.is_live:
+        st.success("🟢 **Gnani.ai Speech:** Live API")
+        st.caption("Model: `timbre-v2.5` | Voice: `Kaveri`")
+        if st.button("🔌 Test API Connection", use_container_width=True):
+            with st.spinner("Pinging Gnani.ai API..."):
+                test_res = st.session_state.voice_client.test_connection()
+                if test_res["status"] == "success":
+                    st.success(test_res["message"])
+                else:
+                    st.error(test_res["message"])
+    else:
+        st.warning("🟠 **Gnani.ai Speech:** Mock Engine (No Key)")
+        with st.expander("ℹ️ How to enable Live Voice"):
+            st.markdown(
+                "1. Get API key from [app.gnani.ai/voice](https://app.gnani.ai/voice)\n"
+                "2. Add to `.env` in project root:\n"
+                "   ```env\n"
+                "   GNANI_API_KEY=your_key_here\n"
+                "   ```\n"
+                "3. Click button below to reload:"
+            )
+            if st.button("🔄 Reload Credentials", use_container_width=True):
+                from dotenv import load_dotenv
+                for env_p in [_PROJECT_ROOT / ".env", _PROJECT_ROOT.parent / ".env"]:
+                    if env_p.exists():
+                        load_dotenv(dotenv_path=env_p, override=True)
+                load_dotenv(override=True)
+                st.session_state.voice_client = VoiceClient()
+                st.rerun()
+
     st.caption(f"Ref Date: **{settings.REFERENCE_DATE}**")
 
     if st.button("🔄 Reset Conversation", use_container_width=True):

@@ -4,10 +4,14 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
-# Load local environment variables from .env if available
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load local environment variables from .env if available across workspace paths
+for env_path in [BASE_DIR / ".env", BASE_DIR.parent / ".env", Path.cwd() / ".env"]:
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path)
 load_dotenv()
 
-BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Locate dataset directory with resilient multi-path discovery
 DATASET_DIR = BASE_DIR

@@ -2,17 +2,20 @@
   "file_name": "sample_customer_order_help.wav",
   "language_code": "en-IN",
   "transcript": "Hello, I need help with my order 8978 2837.",
-  "reply": "Hello! I am ZentroMart's AI customer support assistant. Could you please provide your 8-digit order ID so I can assist you?",
+  "reply": "Hello! I am ZentroMart's AI customer support assistant. To protect your order details for order 89782837, could you please provide the last 4 digits of your registered phone number OR your delivery pincode?",
   "reply_audio": "sample_customer_order_help_reply.wav",
   "source_chunks": [
-    "STY-1"
+    "STY-1",
+    "IDV-2"
   ],
-  "tool_calls": [],
+  "tool_calls": [
+    "lookup_order(order_id=89782837)"
+  ],
   "latencies_ms": {
     "stt_ms": 0.0,
-    "agent_ms": 0.08,
-    "tts_ms": 15.17,
-    "total_ms": 15.29
+    "agent_ms": 0.35,
+    "tts_ms": 28.52,
+    "total_ms": 28.93
   },
-  "processed_at": "2026-10-22T06:16:47Z"
+  "processed_at": "2026-10-24T09:00:49Z"
 }

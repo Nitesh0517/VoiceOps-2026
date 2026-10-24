@@ -123,14 +123,28 @@ class VoiceOpsAgent:
         source_chunks: List[str] = []
         decision: str = "answer"
 
+        detected_oid = self._detect_order_id(msg_clean)
+
         # Rule 1: Turn 1 Greeting with AI introduction
         if len(session.turns) == 0:
             decision = "clarify"
-            source_chunks = ["STY-1"]
-            if is_hindi:
-                reply = "नमस्ते! मैं ZentroMart का AI कस्टमर सपोर्ट असिस्टेंट (AI assistant) हूँ। कृपया मुझे अपना 8 अंकों का ऑर्डर नंबर (Order ID) बताएं, ताकि मैं आपकी सहायता कर सकूँ।"
+            if detected_oid:
+                session.order_id = detected_oid
+                session.verification_status = "pending"
+                call_repr = f"lookup_order(order_id={detected_oid})"
+                tool_calls.append(call_repr)
+                self.order_tool.lookup_order(detected_oid)
+                source_chunks = ["STY-1", "IDV-2"]
+                if is_hindi:
+                    reply = f"नमस्ते! मैं ZentroMart का AI कस्टमर सपोर्ट असिस्टेंट (AI assistant) हूँ। आपके ऑर्डर {detected_oid} के विवरण की सुरक्षा के लिए, कृपया अपने रजिस्टर्ड फ़ोन नंबर के आख़िरी 4 अंक (last 4 digits) या डिलीवरी पिनकोड बताएं।"
+                else:
+                    reply = f"Hello! I am ZentroMart's AI customer support assistant. To protect your order details for order {detected_oid}, could you please provide the last 4 digits of your registered phone number OR your delivery pincode?"
             else:
-                reply = "Hello! I am ZentroMart's AI customer support assistant. Could you please provide your 8-digit order ID so I can assist you?"
+                source_chunks = ["STY-1"]
+                if is_hindi:
+                    reply = "नमस्ते! मैं ZentroMart का AI कस्टमर सपोर्ट असिस्टेंट (AI assistant) हूँ। कृपया मुझे अपना 8 अंकों का ऑर्डर नंबर (Order ID) बताएं, ताकि मैं आपकी सहायता कर सकूँ।"
+                else:
+                    reply = "Hello! I am ZentroMart's AI customer support assistant. Could you please provide your 8-digit order ID so I can assist you?"
             session.add_turn(msg_clean, reply, decision=decision, tool_calls=tool_calls, sources=source_chunks)
             return {
                 "reply": reply,
@@ -140,8 +154,7 @@ class VoiceOpsAgent:
                 "session_id": conversation_id
             }
 
-        # Rule 2: Order ID detection & Caller Identity Gate
-        detected_oid = self._detect_order_id(msg_clean)
+        # Rule 2: Order ID detection & Caller Identity Gate (Subsequent turns)
         if detected_oid and session.verification_status != "verified":
             session.order_id = detected_oid
             session.verification_status = "pending"

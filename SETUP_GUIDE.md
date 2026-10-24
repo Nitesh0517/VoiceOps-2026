@@ -20,18 +20,53 @@ cd VOICE
 pip install -r requirements.txt
 ```
 
-### Step 3: Configure Environment Variables
-Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
-```
-Open `.env` and optionally set your API keys:
-```env
-GNANI_API_KEY=your_gnani_api_key_here
-GEMINI_API_KEY=your_gemini_api_key_here  # Optional
-OPENAI_API_KEY=your_openai_api_key_here  # Optional
-```
-> **Note**: If `GNANI_API_KEY` is omitted, the system automatically runs in high-fidelity mock audio mode for offline evaluation and unit tests.
+### Step 3: Configure Environment Variables & Gnani.ai Credentials
+
+1. **Obtain your Gnani API Key:**
+   * Sign in to [app.gnani.ai/voice](https://app.gnani.ai/voice).
+   * Generate an API key. A single key covers both Speech-to-Text (STT) and Text-to-Speech (TTS).
+
+2. **Create your local `.env` file:**
+   In Windows PowerShell:
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+   Or in Bash:
+   ```bash
+   cp .env.example .env
+   ```
+
+3. **Edit `.env` and set your credentials:**
+   ```env
+   GNANI_API_KEY=your_actual_key_here
+   GEMINI_API_KEY=your_gemini_api_key_here  # Optional: for live LLM generation
+   OPENAI_API_KEY=your_openai_api_key_here  # Optional
+   ```
+   > ⚠️ **Important Security Note**: Never commit `.env` or share secret keys in public chats/repositories. The `.gitignore` file already ignores `.env`.
+
+4. **Alternative: Set in Shell Environment directly:**
+   * **PowerShell**:
+     ```powershell
+     $env:GNANI_API_KEY="your_actual_key_here"
+     ```
+   * **CMD (Windows)**:
+     ```cmd
+     set GNANI_API_KEY=your_actual_key_here
+     ```
+   * **Linux/macOS Bash**:
+     ```bash
+     export GNANI_API_KEY="your_actual_key_here"
+     ```
+
+5. **Voice Engine Modes:**
+   * **Live Mode (`🟢 Live API`)**: Automatically active when `GNANI_API_KEY` is set. Makes live REST calls to `https://api.vachana.ai/stt/v3` and `https://api.vachana.ai/tts/v2` using model `timbre-v2.5` and voice `Kaveri`.
+   * **Mock Mode (`🟠 Mock Engine`)**: Runs when `GNANI_API_KEY` is empty. Generates valid 16kHz PCM WAV bytes and uses deterministic test transcripts. All 31 unit tests and benchmarks pass in mock mode without consuming API credits.
+
+6. **Verify Live Voice Connection:**
+   Run the live integration test:
+   ```bash
+   pytest tests/test_voice.py -k test_real_gnani_network_integration -v
+   ```
 
 ---
 
