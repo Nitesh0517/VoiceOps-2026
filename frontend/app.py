@@ -1,8 +1,20 @@
 """Streamlit UI for VoiceOps 2026 AI Customer Support Voice Agent."""
 import os
+import sys
 import time
 import tempfile
 from pathlib import Path
+
+# Fix Streamlit module shadowing where frontend/app.py shadows top-level 'app' package
+_FRONTEND_DIR = Path(__file__).resolve().parent
+_PROJECT_ROOT = _FRONTEND_DIR.parent
+if str(_FRONTEND_DIR) in sys.path:
+    sys.path.remove(str(_FRONTEND_DIR))
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+if "app" in sys.modules and not hasattr(sys.modules["app"], "__path__"):
+    del sys.modules["app"]
+
 import streamlit as st
 import pandas as pd
 from app.config import settings
