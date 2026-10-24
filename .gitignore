@@ -27,6 +27,7 @@ htmlcov/
 
 # Logs & IDE
 *.log
+*.zip
 .vscode/
 .idea/
 .DS_Store
