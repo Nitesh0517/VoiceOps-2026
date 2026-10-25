@@ -13,9 +13,13 @@ from app.agent.orchestrator import VoiceOpsAgent
 
 
 @pytest.fixture
-def voice():
-    """Default VoiceClient running without credentials (mock mode)."""
-    return VoiceClient()
+def mock_voice(monkeypatch):
+    """Explicit offline/mock VoiceClient with empty credentials."""
+    monkeypatch.delenv("GNANI_API_KEY", raising=False)
+    vc = VoiceClient()
+    vc.api_key = ""
+    vc.is_live = False
+    return vc
 
 
 @pytest.fixture
@@ -49,27 +53,27 @@ def test_mock_wav_generation():
 # 2. OFFLINE / MOCK SPEECH ENGINE TESTS
 # ==========================================
 
-def test_voice_transcribe_mock(voice, test_audio_file):
-    res = voice.transcribe(test_audio_file, language_code="en-IN")
+def test_voice_transcribe_mock(mock_voice, test_audio_file):
+    res = mock_voice.transcribe(test_audio_file, language_code="en-IN")
     assert "transcript" in res
     assert res["latency_ms"] >= 0
     assert len(res["transcript"]) > 0
     assert res["is_live"] is False
 
 
-def test_voice_synthesize_mock(voice, tmp_path):
+def test_voice_synthesize_mock(mock_voice, tmp_path):
     out_file = tmp_path / "test_reply.wav"
-    wav_bytes, meta = voice.synthesize("Thank you for contacting ZentroMart.", output_file=out_file)
+    wav_bytes, meta = mock_voice.synthesize("Thank you for contacting ZentroMart.", output_file=out_file)
     assert len(wav_bytes) > 44
     assert out_file.exists()
     assert meta["latency_ms"] >= 0
     assert meta["is_live"] is False
 
 
-def test_full_voice_turn_mock(voice, test_audio_file, tmp_path):
+def test_full_voice_turn_mock(mock_voice, test_audio_file, tmp_path):
     agent = VoiceOpsAgent()
     out_audio = tmp_path / "turn_reply.wav"
-    res = voice.voice_turn(
+    res = mock_voice.voice_turn(
         audio_path=test_audio_file,
         agent=agent,
         conversation_id="voice_turn_test",

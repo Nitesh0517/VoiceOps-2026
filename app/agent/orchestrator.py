@@ -35,11 +35,24 @@ class VoiceOpsAgent:
 
     def _detect_order_id(self, text: str) -> Optional[str]:
         # Matches 8 digits with optional spaces or dashes: e.g. 8978 2837 or 89782837
-        matches = re.findall(r"\b(\d{4})\s*(\d{4})\b", text)
+        matches = re.findall(r"\b(\d{4})[\s\-]*(\d{4})\b", text)
         if matches:
             return matches[0][0] + matches[0][1]
         raw_digits = self._extract_digits(text)
         if len(raw_digits) == 8:
+            return raw_digits
+        return None
+
+    def _extract_verification_value(self, text: str) -> Optional[str]:
+        # Matches 6-digit delivery pincode or 4-digit phone suffix
+        pin_matches = re.findall(r"\b(\d{6})\b", text)
+        if pin_matches:
+            return pin_matches[0]
+        phone_matches = re.findall(r"\b(\d{4})\b", text)
+        if phone_matches:
+            return phone_matches[-1]
+        raw_digits = self._extract_digits(text)
+        if len(raw_digits) in (4, 6):
             return raw_digits
         return None
 
@@ -155,9 +168,10 @@ class VoiceOpsAgent:
             }
 
         # Rule 2: Order ID detection & Caller Identity Gate (Subsequent turns)
-        if detected_oid and session.verification_status != "verified":
+        if detected_oid and (session.verification_status != "verified" or detected_oid != session.order_id):
             session.order_id = detected_oid
             session.verification_status = "pending"
+            session.verified_order_data = None
             call_repr = f"lookup_order(order_id={detected_oid})"
             tool_calls.append(call_repr)
             self.order_tool.lookup_order(detected_oid)
@@ -165,9 +179,9 @@ class VoiceOpsAgent:
             decision = "clarify"
             source_chunks = ["IDV-2"]
             if is_hindi:
-                reply = f"ऑर्डर विवरण की सुरक्षा के लिए, कृपया अपने रजिस्टर्ड फ़ोन नंबर के आख़िरी 4 अंक (last 4 digits) या डिलीवरी पिनकोड (delivery pincode) बताएं।"
+                reply = f"ऑर्डर {detected_oid} के विवरण की सुरक्षा के लिए, कृपया अपने रजिस्टर्ड फ़ोन नंबर के आख़िरी 4 अंक (last 4 digits) या डिलीवरी पिनकोड (delivery pincode) बताएं।"
             else:
-                reply = f"To protect your order details, could you please provide the last 4 digits of your registered phone number OR your delivery pincode?"
+                reply = f"To protect your order details for order {detected_oid}, could you please provide the last 4 digits of your registered phone number OR your delivery pincode?"
             session.add_turn(msg_clean, reply, decision=decision, tool_calls=tool_calls, sources=source_chunks)
             return {
                 "reply": reply,
@@ -179,22 +193,49 @@ class VoiceOpsAgent:
 
         # Rule 3: Processing Verification Digits (last 4 phone digits or 6-digit pincode)
         if session.verification_status == "pending" and session.order_id:
-            digits = self._extract_digits(msg_clean)
-            if len(digits) in (4, 6):
-                call_repr = f"lookup_order(order_id={session.order_id}, verification_value={digits})"
+            verif_val = self._extract_verification_value(msg_clean)
+            if verif_val:
+                call_repr = f"lookup_order(order_id={session.order_id}, verification_value={verif_val})"
                 tool_calls.append(call_repr)
-                res = self.order_tool.lookup_order(session.order_id, verification_value=digits)
+                res = self.order_tool.lookup_order(session.order_id, verification_value=verif_val)
                 
                 if res.get("verified") is True:
                     session.verification_status = "verified"
                     session.verified_order_data = res
+                    session.customer_id = res.get("customer_id")
                     decision = "answer"
                     source_chunks = ["IDV-2"]
                     first_name = res.get("customer_first_name", "Customer")
-                    if is_hindi:
-                        reply = f"धन्यवाद {first_name}, आपकी पहचान सत्यापित (verified) हो गई है। मैं आपके ऑर्डर {session.order_id} में कैसे मदद कर सकता हूँ?"
+                    
+                    # If customer already asked for status/items/delivery in this turn, answer directly
+                    if any(k in msg_lower for k in ["status", "track", "where", "kahan", "deliver", "item"]):
+                        ord_data = res
+                        items = ord_data.get("items", [])
+                        item_names = [it.get("title", "") for it in items if it.get("title")]
+                        items_str = ", ".join(item_names) if item_names else "items"
+                        deliv_on = ord_data.get("delivered_on")
+                        prom_date = ord_data.get("promised_date", "2026-10-15")
+                        pin = ord_data.get("delivery_pincode", "")
+                        ord_status = str(ord_data.get("status", "placed")).lower()
+                        source_chunks = ["TRK-1", "DEL-1", "IDV-2"]
+                        
+                        if ord_status == "delivered":
+                            if is_hindi:
+                                reply = f"धन्यवाद {first_name}, आपकी पहचान सत्यापित हो गई है। आपका ऑर्डर {session.order_id} {deliv_on or prom_date} को पिनकोड {pin} पर डिलीवर हो चुका है। इसमें शामिल हैं: {items_str}।"
+                            else:
+                                reply = f"Thank you {first_name}, your identity has been successfully verified for order {session.order_id}. Your order was successfully delivered on {deliv_on or prom_date} (promised date: {prom_date}) to pincode {pin}. It contains: {items_str}."
+                        else:
+                            status_disp = ord_status.replace("_", " ")
+                            if is_hindi:
+                                reply = f"धन्यवाद {first_name}, आपकी पहचान सत्यापित हो गई है। आपके ऑर्डर {session.order_id} का वर्तमान स्टेटस '{status_disp}' है।"
+                            else:
+                                reply = f"Thank you {first_name}, your identity has been successfully verified for order {session.order_id}. The current status is '{status_disp}', expected by {prom_date}."
                     else:
-                        reply = f"Thank you {first_name}, your identity has been successfully verified for order {session.order_id}. How can I assist you with this order today?"
+                        if is_hindi:
+                            reply = f"धन्यवाद {first_name}, आपकी पहचान सत्यापित (verified) हो गई है। मैं आपके ऑर्डर {session.order_id} में कैसे मदद कर सकता हूँ?"
+                        else:
+                            reply = f"Thank you {first_name}, your identity has been successfully verified for order {session.order_id}. How can I assist you with this order today?"
+                            
                     session.add_turn(msg_clean, reply, decision=decision, tool_calls=tool_calls, sources=source_chunks)
                     return {
                         "reply": reply,
@@ -219,14 +260,31 @@ class VoiceOpsAgent:
                         "source_chunks": source_chunks,
                         "session_id": conversation_id
                     }
+            elif any(k in msg_lower for k in ["status", "where", "track", "delivery", "delivered", "kahan", "kab", "detail", "item", "order"]):
+                # Customer asks for status or details without giving verification code
+                decision = "clarify"
+                source_chunks = ["IDV-2"]
+                if is_hindi:
+                    reply = f"ऑर्डर विवरण की सुरक्षा के लिए, कृपया पहले अपने रजिस्टर्ड फ़ोन नंबर के आख़िरी 4 अंक या डिलीवरी पिनकोड बताएं।"
+                else:
+                    reply = f"To protect your order details, could you please provide the last 4 digits of your registered phone number OR your delivery pincode first?"
+                session.add_turn(msg_clean, reply, decision=decision, tool_calls=tool_calls, sources=source_chunks)
+                return {
+                    "reply": reply,
+                    "decision": decision,
+                    "tool_calls": tool_calls,
+                    "source_chunks": source_chunks,
+                    "session_id": conversation_id
+                }
 
-        # Rule 4: Verified Session Inquiries (Damage Escalation, Return Eligibility, Refund Timeline)
+        # Rule 4: Verified Session Inquiries (Damage Escalation, Return Eligibility, Refund Timeline, Order Status & Details)
         if session.verification_status == "verified" and session.verified_order_data:
             ord_data = session.verified_order_data
             items = ord_data.get("items", [])
             is_plus = bool(ord_data.get("is_plus", False))
             pm = ord_data.get("payment_method", "upi")
             deliv_date_str = ord_data.get("delivered_on") or ord_data.get("promised_date", "2026-10-14")
+            ord_status = str(ord_data.get("status", "placed")).lower()
 
             # 4A. High-Value Damage or Compensation Escalation
             if any(k in msg_lower for k in ["damage", "broken", "kharab", "replacement approve", "compensation", "muavza", "₹500"]):
@@ -338,6 +396,116 @@ class VoiceOpsAgent:
                     "session_id": conversation_id
                 }
 
+            # 4D. Order Status, Tracking, Delivery, Items, and Order Details
+            status_keywords = [
+                "status", "track", "tracking", "where is", "where's", "kahan", "pahuncha",
+                "kab tak", "kab aayega", "arrive", "arrival", "deliver", "delivered", "delivery",
+                "shipped", "dispatched", "packed", "placed", "update", "latest update",
+                "item", "items", "product", "products", "what did i order", "what did i buy",
+                "what is in my order", "total", "amount", "price", "cost", "details", "summary",
+                "current status", "order status"
+            ]
+            if any(k in msg_lower for k in status_keywords):
+                decision = "answer"
+                call_repr = f"lookup_order(order_id={session.order_id})"
+                tool_calls.append(call_repr)
+                source_chunks = ["TRK-1", "IDV-2"]
+                
+                # Format items summary
+                item_titles = [it.get("title", "") for it in items if it.get("title")]
+                if len(item_titles) == 1:
+                    items_str = item_titles[0]
+                elif len(item_titles) > 1:
+                    items_str = ", ".join(item_titles[:-1]) + " and " + item_titles[-1]
+                else:
+                    items_str = "your ordered items"
+                
+                # Subcase 4D-1: Specific inquiry for items / product list
+                if any(k in msg_lower for k in ["item", "items", "product", "products", "what did i buy", "what did i order", "what is in my order", "kya mangwaya", "kya kharida"]):
+                    items_detail = [f"{it.get('qty', 1)}x {it.get('title', 'Item')} (₹{it.get('unit_price_inr', 0)})" for it in items]
+                    items_detail_str = ", ".join(items_detail) if items_detail else items_str
+                    total_val = ord_data.get("total_inr", 0)
+                    if is_hindi:
+                        reply = f"ऑर्डर {session.order_id} में {len(items)} आइटम शामिल हैं: {items_detail_str} (कुल राशि: ₹{total_val})। वर्तमान स्टेटस '{ord_status.replace('_', ' ')}' है।"
+                    else:
+                        reply = f"Order {session.order_id} contains {len(items)} item(s): {items_detail_str}, with a total order value of ₹{total_val}. Current status is {ord_status.replace('_', ' ')}."
+                    session.add_turn(msg_clean, reply, decision=decision, tool_calls=tool_calls, sources=source_chunks)
+                    return {
+                        "reply": reply,
+                        "decision": decision,
+                        "tool_calls": tool_calls,
+                        "source_chunks": source_chunks,
+                        "session_id": conversation_id
+                    }
+
+                # Subcase 4D-2: Specific inquiry for total price / payment / amount
+                if any(k in msg_lower for k in ["total", "amount", "price", "cost", "how much", "kitna", "bill"]) and not any(k in msg_lower for k in ["refund", "wapas"]):
+                    total_val = ord_data.get("total_inr", 0)
+                    pm_disp = str(ord_data.get("payment_method", "upi")).upper()
+                    if is_hindi:
+                        reply = f"ऑर्डर {session.order_id} की कुल राशि ₹{total_val} है, जिसका भुगतान {pm_disp} के माध्यम से किया गया था।"
+                    else:
+                        reply = f"The total amount for order {session.order_id} is ₹{total_val}, paid via {pm_disp}."
+                    session.add_turn(msg_clean, reply, decision=decision, tool_calls=tool_calls, sources=source_chunks)
+                    return {
+                        "reply": reply,
+                        "decision": decision,
+                        "tool_calls": tool_calls,
+                        "source_chunks": source_chunks,
+                        "session_id": conversation_id
+                    }
+
+                # Subcase 4D-3: General order status, tracking, and delivery inquiry
+                source_chunks = ["TRK-1", "DEL-1", "IDV-2"]
+                deliv_on = ord_data.get("delivered_on")
+                prom_date = ord_data.get("promised_date", "2026-10-15")
+                pincode = ord_data.get("delivery_pincode", "")
+                shipped_on = ord_data.get("shipped_on")
+                placed_at = ord_data.get("placed_at", "")[:10]
+                
+                if ord_status == "delivered":
+                    if is_hindi:
+                        reply = f"आपका ऑर्डर {session.order_id} {deliv_on or prom_date} को पिनकोड {pincode} पर सफलतापूर्वक डिलीवर हो चुका है (वादा की गई तारीख: {prom_date})। इसमें शामिल हैं: {items_str}।"
+                    else:
+                        reply = f"Your order {session.order_id} was successfully delivered on {deliv_on or prom_date} (promised delivery date was {prom_date}) to pincode {pincode}. It contains: {items_str}."
+                elif ord_status in ("shipped", "out_for_delivery", "in_transit"):
+                    status_disp = "out for delivery" if ord_status == "out_for_delivery" else "shipped"
+                    if is_hindi:
+                        reply = f"आपका ऑर्डर {session.order_id} वर्तमान में {status_disp} है (शिपिंग तिथि: {shipped_on}) और यह {prom_date} तक पिनकोड {pincode} पर डिलीवर होने की उम्मीद है।"
+                    else:
+                        reply = f"Your order {session.order_id} is currently {status_disp} (shipped on {shipped_on}). It is scheduled to be delivered by {prom_date} to pincode {pincode}."
+                elif ord_status in ("placed", "packed"):
+                    if is_hindi:
+                        reply = f"आपका ऑर्डर {session.order_id} वर्तमान में {ord_status} है (ऑर्डर तिथि: {placed_at})। इसकी अपेक्षित डिलीवरी तारीख {prom_date} है।"
+                    else:
+                        reply = f"Your order {session.order_id} is currently {ord_status} (placed on {placed_at}). It is scheduled for delivery by {prom_date}."
+                elif ord_status == "cancelled":
+                    if is_hindi:
+                        reply = f"आपका ऑर्डर {session.order_id} कैंसिल हो चुका है।"
+                    else:
+                        reply = f"Your order {session.order_id} has been cancelled."
+                elif ord_status.startswith("return"):
+                    status_disp = ord_status.replace("_", " ")
+                    if is_hindi:
+                        reply = f"आपके ऑर्डर {session.order_id} का रिटर्न स्टेटस वर्तमान में '{status_disp}' है।"
+                    else:
+                        reply = f"The return status for order {session.order_id} is currently '{status_disp}'."
+                else:
+                    status_disp = ord_status.replace("_", " ")
+                    if is_hindi:
+                        reply = f"आपके ऑर्डर {session.order_id} का वर्तमान स्टेटस '{status_disp}' है। अपेक्षित डिलीवरी तिथि {prom_date} है।"
+                    else:
+                        reply = f"The current status of your order {session.order_id} is '{status_disp}'. Promised delivery date is {prom_date}."
+
+                session.add_turn(msg_clean, reply, decision=decision, tool_calls=tool_calls, sources=source_chunks)
+                return {
+                    "reply": reply,
+                    "decision": decision,
+                    "tool_calls": tool_calls,
+                    "source_chunks": source_chunks,
+                    "session_id": conversation_id
+                }
+
         # Rule 5: Fallback to RAG Knowledge Base
         ctx = self.rag.get_context(msg_clean, top_k=4)
         if not ctx["answerable"]:
@@ -354,9 +522,24 @@ class VoiceOpsAgent:
                 "session_id": conversation_id
             }
 
+        order_ctx = ""
+        if session.verification_status == "verified" and session.verified_order_data:
+            od = session.verified_order_data
+            order_ctx = (
+                f"\n\nVERIFIED CUSTOMER ORDER:\n"
+                f"- Order ID: {session.order_id}\n"
+                f"- Customer Name: {od.get('customer_first_name')}\n"
+                f"- Status: {od.get('status')}\n"
+                f"- Delivered On: {od.get('delivered_on')}\n"
+                f"- Promised Date: {od.get('promised_date')}\n"
+                f"- Payment Method: {od.get('payment_method')}\n"
+                f"- Total: ₹{od.get('total_inr')}\n"
+                f"- Items: {', '.join([it.get('title', '') for it in od.get('items', [])])}\n"
+            )
+
         prompt = (
             f"{STEP3_AGENT_SYSTEM_PROMPT}\n\n"
-            f"KNOWLEDGE BASE CONTEXT:\n{ctx['context_text']}\n\n"
+            f"KNOWLEDGE BASE CONTEXT:\n{ctx['context_text']}{order_ctx}\n\n"
             f"CUSTOMER MESSAGE: {msg_clean}\n\n"
             f"Answer concisely for voice:"
         )

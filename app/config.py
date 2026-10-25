@@ -6,11 +6,14 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load local environment variables from .env if available across workspace paths
-for env_path in [BASE_DIR / ".env", BASE_DIR.parent / ".env", Path.cwd() / ".env"]:
-    if env_path.exists():
-        load_dotenv(dotenv_path=env_path)
-load_dotenv()
+def reload_settings_env():
+    """Explicitly reloads environment variables from the project root .env with override=True."""
+    for env_path in [BASE_DIR / ".env", BASE_DIR.parent / ".env", Path.cwd() / ".env"]:
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path, override=True)
+    load_dotenv(override=True)
+
+reload_settings_env()
 
 
 # Locate dataset directory with resilient multi-path discovery

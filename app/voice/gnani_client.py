@@ -13,7 +13,15 @@ logger = logging.getLogger(__name__)
 
 class VoiceClient:
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = (api_key or os.getenv("GNANI_API_KEY", "") or settings.GNANI_API_KEY).strip()
+        raw_key = (api_key or os.getenv("GNANI_API_KEY", "") or getattr(settings, "GNANI_API_KEY", "")).strip()
+        if not raw_key:
+            from dotenv import load_dotenv
+            env_file = settings.BASE_DIR / ".env"
+            if env_file.exists():
+                load_dotenv(dotenv_path=env_file, override=True)
+                raw_key = os.getenv("GNANI_API_KEY", "").strip()
+
+        self.api_key = raw_key
         self.mock_engine = MockSpeechEngine()
         self.is_live = False
         self.stt_client = None
@@ -169,7 +177,8 @@ class VoiceClient:
         }
 
     def voice_turn(self, audio_path: str | Path, agent, conversation_id: str = "voice_turn_session",
-                   language_code: str = "en-IN", output_file: str | Path = "reply.wav") -> Dict[str, Any]:
+                   language_code: str = "en-IN", output_file: str | Path = "reply.wav",
+                   step_mode: int = 3) -> Dict[str, Any]:
         """
         Full Turn: Audio In -> STT -> Agent Brain -> Normalization -> TTS -> Audio Out.
         """
@@ -185,7 +194,7 @@ class VoiceClient:
             reply_text = "Sorry, I didn't catch that. Could you say it again?"
             agent_res = {"reply": reply_text, "source_chunks": [], "tool_calls": []}
         else:
-            agent_res = agent.respond(heard, conversation_id=conversation_id, step_mode=3)
+            agent_res = agent.respond(heard, conversation_id=conversation_id, step_mode=step_mode)
             reply_text = agent_res["reply"]
         agent_latency_ms = (time.perf_counter() - t_agent_0) * 1000
         
@@ -213,5 +222,7 @@ class VoiceClient:
                 "tts_ms": tts_info["latency_ms"],
                 "total_ms": round(total_latency_ms, 2)
             },
-            "is_live": self.is_live
+            "is_live": self.is_live,
+            "step_mode": step_mode,
+            "error": stt_res.get("error") or tts_info.get("error")
         }

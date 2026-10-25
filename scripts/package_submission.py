@@ -6,8 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-EXCLUDE_DIRS = {".git", ".pytest_cache", "__pycache__", "venv", ".venv", "env"}
-EXCLUDE_FILES = {".env", "zentromart.db", "zentromart.db-wal", "zentromart.db-shm"}
+EXCLUDE_DIRS = {".git", ".pytest_cache", "__pycache__", "venv", ".venv", "env", "node_modules"}
+EXCLUDE_FILES = {".env", "zentromart.db", "zentromart.db-wal", "zentromart.db-shm", ".DS_Store", "Thumbs.db"}
 
 
 def package_submission(output_filename: str = "voiceops_submission.zip"):
@@ -16,7 +16,7 @@ def package_submission(output_filename: str = "voiceops_submission.zip"):
     
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
         # 1. Essential root files
-        for fname in ["README.md", ".env.example", "requirements.txt", "run.py", "report.pdf", "SETUP_GUIDE.md"]:
+        for fname in ["README.md", ".env.example", "requirements.txt", "run.py", "report.pdf", "SETUP_GUIDE.md", "streamlit_app.py"]:
             fpath = ROOT / fname
             if fpath.exists():
                 print(f"  Adding file: {fname}")
@@ -24,7 +24,7 @@ def package_submission(output_filename: str = "voiceops_submission.zip"):
             else:
                 print(f"  [Warning] Missing: {fname}")
 
-        # 2. Source code (app/ and frontend/)
+        # 2. Source code (app/, frontend/, sample_outputs/)
         for folder in ["app", "frontend", "sample_outputs"]:
             folder_path = ROOT / folder
             if folder_path.exists():
@@ -32,6 +32,8 @@ def package_submission(output_filename: str = "voiceops_submission.zip"):
                     dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
                     for file in files:
                         if file in EXCLUDE_FILES or file.endswith(".pyc"):
+                            continue
+                        if file.startswith(".env") and file != ".env.example":
                             continue
                         full_p = Path(root) / file
                         arcname = full_p.relative_to(ROOT)
